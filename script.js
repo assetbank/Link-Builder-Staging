@@ -28,7 +28,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function handleInputChange() {
         if (currentPanel === 0) {
             generateLink();
-        } else {
+        } else if (currentPanel === 1) {
             generateKeywordLink();
         }
     }
@@ -67,14 +67,65 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
+    function updateDeleteButtons(containerId, rowClass) {
+        const rows = document.querySelectorAll(`#${containerId} .${rowClass}`);
+        rows.forEach(row => {
+            const btn = row.querySelector(".delete-row-btn");
+            if (btn) btn.style.visibility = rows.length > 1 ? "visible" : "hidden";
+        });
+    }
+
+    function renumberRows(containerId, rowClass, placeholderFn) {
+        const rows = document.querySelectorAll(`#${containerId} .${rowClass}`);
+        rows.forEach((row, i) => {
+            const inputs = row.querySelectorAll("input");
+            placeholderFn(inputs, i + 1);
+        });
+    }
+
+    updateDeleteButtons("metaproperty-rows", "metaproperty-row");
+    updateDeleteButtons("tag-rows", "tag-row");
+
+    document.getElementById("metaproperty-rows").addEventListener("click", function (e) {
+        if (e.target.classList.contains("delete-row-btn")) {
+            const rows = document.querySelectorAll("#metaproperty-rows .metaproperty-row");
+            if (rows.length > 1) {
+                e.target.closest(".metaproperty-row").remove();
+                generateLink();
+                updateDeleteButtons("metaproperty-rows", "metaproperty-row");
+                renumberRows("metaproperty-rows", "metaproperty-row", (inputs, n) => {
+                    if (!inputs[0].value) inputs[0].placeholder = `🔧 Metaproperty ${n}`;
+                    if (!inputs[1].value) inputs[1].placeholder = `📋 Option ${n}`;
+                });
+            }
+        }
+    });
+
     document.getElementById("add-metaproperty-btn").addEventListener("click", function () {
         const rows = document.querySelectorAll("#metaproperty-rows .metaproperty-row");
         const n = rows.length + 1;
         const row = document.createElement("div");
         row.className = "form-group metaproperty-row";
-        row.innerHTML = `<div><input type="text" placeholder="🔧 Metaproperty ${n}"></div><div><input type="text" placeholder="📋 Option ${n}"></div>`;
+        row.innerHTML = `<div><input type="text" placeholder="🔧 Metaproperty ${n}"></div><div><input type="text" placeholder="📋 Option ${n}"></div><button type="button" class="delete-row-btn" title="Remove row">×</button>`;
         row.querySelectorAll("input").forEach(input => input.addEventListener("input", generateLink));
         document.getElementById("metaproperty-rows").appendChild(row);
+        updateDeleteButtons("metaproperty-rows", "metaproperty-row");
+    });
+
+    document.getElementById("tag-rows").addEventListener("click", function (e) {
+        if (e.target.classList.contains("delete-row-btn")) {
+            const rows = document.querySelectorAll("#tag-rows .tag-row");
+            if (rows.length > 1) {
+                e.target.closest(".tag-row").remove();
+                generateLink();
+                updateDeleteButtons("tag-rows", "tag-row");
+                renumberRows("tag-rows", "tag-row", (inputs, n) => {
+                    const base = (n - 1) * 2 + 1;
+                    if (!inputs[0].value) inputs[0].placeholder = `🏷️ Tag ${base}`;
+                    if (!inputs[1].value) inputs[1].placeholder = `🏷️ Tag ${base + 1}`;
+                });
+            }
+        }
     });
 
     document.getElementById("add-tag-btn").addEventListener("click", function () {
@@ -82,9 +133,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const n = rows.length * 2 + 1;
         const row = document.createElement("div");
         row.className = "form-group tag-row";
-        row.innerHTML = `<div><input type="text" placeholder="🏷️ Tag ${n}"></div><div><input type="text" placeholder="🏷️ Tag ${n + 1}"></div>`;
+        row.innerHTML = `<div><input type="text" placeholder="🏷️ Tag ${n}"></div><div><input type="text" placeholder="🏷️ Tag ${n + 1}"></div><button type="button" class="delete-row-btn" title="Remove row">×</button>`;
         row.querySelectorAll("input").forEach(input => input.addEventListener("input", generateLink));
         document.getElementById("tag-rows").appendChild(row);
+        updateDeleteButtons("tag-rows", "tag-row");
     });
 
     document.getElementById("add-keyword-btn").addEventListener("click", function () {
@@ -216,6 +268,151 @@ document.addEventListener("DOMContentLoaded", function () {
 
         setLink(outputElement, generatedLink);
     }
+
+    // --- UCV (Browse Assets tab) ---
+
+    const ucvOpenBtn = document.getElementById("ucv-open-btn");
+    const ucvContainer = document.getElementById("ucv-container");
+    const ucvStatus = document.getElementById("ucv-status");
+    let ucvOpen = false;
+
+    function updateUCVButton() {
+        const domain = document.getElementById("baseURL").value.trim();
+        const valid = isValidDomain(domain);
+        ucvOpenBtn.disabled = !valid;
+        if (!valid && document.getElementById("baseURL").value.trim() !== "") {
+            document.getElementById("ucv-prompt-text").textContent = "Please enter a valid Portal URL above first.";
+        } else if (!valid) {
+            document.getElementById("ucv-prompt-text").innerHTML = "Enter your Portal URL above, then click <strong>Open Asset Browser</strong>.";
+        } else {
+            document.getElementById("ucv-prompt-text").innerHTML = "Click <strong>Open Asset Browser</strong> to browse your portal and import asset metadata.";
+        }
+    }
+
+    baseURLInput.addEventListener("input", updateUCVButton);
+    updateUCVButton();
+
+    ucvOpenBtn.addEventListener("click", function () {
+        const domain = document.getElementById("baseURL").value.trim();
+        if (!isValidDomain(domain)) return;
+
+        if (ucvOpen) {
+            ucvContainer.innerHTML = "";
+            ucvContainer.classList.remove("active");
+            ucvOpen = false;
+            ucvOpenBtn.textContent = "Open Asset Browser";
+            ucvStatus.textContent = "";
+            return;
+        }
+
+        ucvOpen = true;
+        ucvContainer.classList.add("active");
+        ucvOpenBtn.textContent = "Close Asset Browser";
+        ucvStatus.textContent = "";
+
+        const ucvApi = (typeof BynderCompactView !== "undefined")
+            ? BynderCompactView
+            : (typeof CompactView !== "undefined" ? CompactView : null);
+
+        if (!ucvApi) {
+            ucvStatus.style.color = "#ef4444";
+            ucvStatus.textContent = "Asset browser failed to load. Please refresh the page and try again.";
+            ucvOpen = false;
+            ucvContainer.classList.remove("active");
+            ucvOpenBtn.textContent = "Open Asset Browser";
+            return;
+        }
+
+        ucvApi.open({
+            container: ucvContainer,
+            portal: {
+                url: domain,
+                editable: false
+            },
+            mode: "SingleSelect",
+            assetFieldSelection: `
+                databaseId
+                name
+                tags
+                metaproperties {
+                    nodes {
+                        name
+                        options {
+                            name
+                        }
+                    }
+                }
+            `,
+            onSuccess: function (assets) {
+                if (!assets || assets.length === 0) return;
+                const asset = assets[0];
+                console.log("UCV asset response:", JSON.stringify(asset, null, 2));
+                populateFromAsset(asset);
+            }
+        });
+    });
+
+    function populateFromAsset(asset) {
+        // Clear existing metaproperty and tag fields
+        const metaContainer = document.getElementById("metaproperty-rows");
+        const tagContainer = document.getElementById("tag-rows");
+        metaContainer.innerHTML = "";
+        tagContainer.innerHTML = "";
+
+        // Populate metaproperties
+        const metaproperties = (asset.metaproperties && asset.metaproperties.nodes) || [];
+        const metaEntries = [];
+        metaproperties.forEach(function (mp) {
+            if (mp.options && mp.options.length > 0) {
+                mp.options.forEach(function (opt) {
+                    metaEntries.push({ field: mp.name, value: opt.name });
+                });
+            }
+        });
+
+        if (metaEntries.length === 0) {
+            metaEntries.push({ field: "", value: "" });
+        }
+
+        metaEntries.forEach(function (entry, i) {
+            const row = document.createElement("div");
+            row.className = "form-group metaproperty-row";
+            row.innerHTML = `<div><input type="text" placeholder="🔧 Metaproperty ${i + 1}" value="${escapeAttr(entry.field)}"></div><div><input type="text" placeholder="📋 Option ${i + 1}" value="${escapeAttr(entry.value)}"></div><button type="button" class="delete-row-btn" title="Remove row">×</button>`;
+            row.querySelectorAll("input").forEach(input => input.addEventListener("input", generateLink));
+            metaContainer.appendChild(row);
+        });
+
+        // Populate tags
+        const tags = asset.tags || [];
+        const tagPairs = [];
+        for (let i = 0; i < tags.length; i += 2) {
+            tagPairs.push({ t1: tags[i] || "", t2: tags[i + 1] || "" });
+        }
+        if (tagPairs.length === 0) {
+            tagPairs.push({ t1: "", t2: "" });
+        }
+
+        tagPairs.forEach(function (pair, i) {
+            const n = i * 2 + 1;
+            const row = document.createElement("div");
+            row.className = "form-group tag-row";
+            row.innerHTML = `<div><input type="text" placeholder="🏷️ Tag ${n}" value="${escapeAttr(pair.t1)}"></div><div><input type="text" placeholder="🏷️ Tag ${n + 1}" value="${escapeAttr(pair.t2)}"></div><button type="button" class="delete-row-btn" title="Remove row">×</button>`;
+            row.querySelectorAll("input").forEach(input => input.addEventListener("input", generateLink));
+            tagContainer.appendChild(row);
+        });
+
+        // Show feedback and switch to panel 1
+        updateDeleteButtons("metaproperty-rows", "metaproperty-row");
+        updateDeleteButtons("tag-rows", "tag-row");
+        ucvStatus.textContent = `Imported: ${asset.name || asset.databaseId}`;
+        switchToTab(0);
+    }
+
+    function escapeAttr(str) {
+        return String(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    // --- end UCV ---
 
     function generateKeywordLink() {
         const baseURL = document.getElementById("baseURL").value.trim();
